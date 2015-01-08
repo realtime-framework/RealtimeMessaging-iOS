@@ -1,0 +1,8 @@
+//
+// Prefix header for all source files of the 'IbtRealTimeSJ' target in the 'IbtRealTimeSJ' project
+//
+
+#ifdef __OBJC__
+    #import <Foundation/Foundation.h>
+    #define NOTIFICATIONS_KEY @"Local_Storage_Notifications"
+#endif
