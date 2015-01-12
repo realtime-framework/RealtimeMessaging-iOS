@@ -1124,6 +1124,9 @@ static NSString *ortcDEVICE_TOKEN;
         }
         
         if (error) {
+            if ([error isEqualToString:@"Invalid connection."]) {
+                [self disconnect];
+            }
             [self delegateExceptionCallback:self error:[self generateError:error]];
         }
         
