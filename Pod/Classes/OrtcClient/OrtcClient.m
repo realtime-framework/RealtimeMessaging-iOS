@@ -254,10 +254,11 @@ NSString* const PLATFORM = @"Apns";
             [self delegateExceptionCallback:self error:[self generateError:[NSString stringWithFormat:@"Channel size exceeds the limit of %d characters", MAX_CHANNEL_SIZE]]];
         }
         else {
-            int domainChannelIndex = [channel rangeOfString:@":"].location;
+            unsigned long domainChannelIndex = (int)[channel rangeOfString:@":"].location;
             NSString* channelToValidate = channel;
             NSString* hashPerm = nil;
             
+
             if (domainChannelIndex != NSNotFound) {
                 channelToValidate = [[channel substringToIndex:domainChannelIndex + 1] stringByAppendingString:@"*"];
             }
@@ -274,16 +275,16 @@ NSString* const PLATFORM = @"Apns";
                 NSData* messageBytes = [NSData dataWithBytes:[aMessage UTF8String] length:[aMessage lengthOfBytesUsingEncoding:NSUTF8StringEncoding]];
                 
                 NSMutableArray* messageParts = [[NSMutableArray alloc] init];
-                int pos = 0;
-                int remaining;
+                unsigned long pos = 0;
+                unsigned long remaining;
                 NSString* messageId = [self generateId:8];
                 
                 // Multi part
                 while ((remaining = messageBytes.length - pos) > 0) {
-                    int arraySize = 0;
+                    unsigned long arraySize = 0;
                     
                     if (remaining >= MAX_MESSAGE_SIZE - channelBytes.length) {
-                        arraySize = MAX_MESSAGE_SIZE - channelBytes.length;
+                        arraySize = MAX_MESSAGE_SIZE - ((int)channelBytes.length);
                     }
                     else {
                         arraySize = remaining;
@@ -303,7 +304,7 @@ NSString* const PLATFORM = @"Apns";
                 for (NSString* __strong messageToSend in messageParts) {
                     NSString* encodedData = [[NSString alloc] initWithData:[NSData dataWithBytes:[messageToSend UTF8String] length:[messageToSend lengthOfBytesUsingEncoding:NSUTF8StringEncoding]] encoding:NSUTF8StringEncoding];
                     
-                    NSString* aString = [NSString stringWithFormat:@"\"send;%@;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, hashPerm, [[[[[[messageId stringByAppendingString:@"_"] stringByAppendingString:[NSString stringWithFormat:@"%d", counter]] stringByAppendingString:@"-"] stringByAppendingString:[NSString stringWithFormat:@"%d", messageParts.count]] stringByAppendingString:@"_"] stringByAppendingString:encodedData]];
+                    NSString* aString = [NSString stringWithFormat:@"\"send;%@;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, hashPerm, [[[[[[messageId stringByAppendingString:@"_"] stringByAppendingString:[NSString stringWithFormat:@"%d", counter]] stringByAppendingString:@"-"] stringByAppendingString:[NSString stringWithFormat:@"%d", ((int)messageParts.count)]] stringByAppendingString:@"_"] stringByAppendingString:encodedData]];
                     
                     [_webSocket send:aString];
                     
@@ -460,7 +461,7 @@ NSString* const PLATFORM = @"Apns";
 
 - (NSString *) checkChannelPermissions:(NSString *) channel
 {
-    int domainChannelIndex = [channel rangeOfString:@":"].location;
+    unsigned long domainChannelIndex = (int)[channel rangeOfString:@":"].location;
     NSString* channelToValidate = channel;
     NSString* hashPerm = nil;
     
@@ -562,7 +563,7 @@ NSString* const PLATFORM = @"Apns";
             
             if (aPermissions && aPermissions.count > 0) 
             {
-                post = [post stringByAppendingString:[NSString stringWithFormat:@"&TP=%d", aPermissions.count]];
+                post = [post stringByAppendingString:[NSString stringWithFormat:@"&TP=%lu", (unsigned long)aPermissions.count]];
                 
                 NSArray* keys = [aPermissions allKeys]; // the dictionary keys
                 
@@ -573,7 +574,7 @@ NSString* const PLATFORM = @"Apns";
             
             NSData* postData = [post dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:YES];
             
-            NSString* postLength = [NSString stringWithFormat:@"%d", [postData length]];
+            NSString* postLength = [NSString stringWithFormat:@"%lu", (unsigned long)[postData length]];
             
             NSMutableURLRequest* request = [[NSMutableURLRequest alloc] init];
             
@@ -631,7 +632,7 @@ NSString* const PLATFORM = @"Apns";
             connectionUrl = [connectionUrl stringByAppendingString:path];
             NSString* content = [NSString stringWithFormat:@"privatekey=%@&metadata=%@", aPrivateKey, (aMetadata ? @"1" : @"0")];            
             NSData* postData = [content dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:YES];
-            NSString* postLength = [NSString stringWithFormat:@"%d", [postData length]];
+            NSString* postLength = [NSString stringWithFormat:@"%lu", (unsigned long)[postData length]];
             NSMutableURLRequest* request = [[NSMutableURLRequest alloc] init];
             
             [request setURL:[NSURL URLWithString:connectionUrl]];
@@ -681,7 +682,7 @@ NSString* const PLATFORM = @"Apns";
             connectionUrl = [connectionUrl stringByAppendingString:path];
             NSString* content = [NSString stringWithFormat:@"privatekey=%@", aPrivateKey];
             NSData* postData = [content dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:YES];
-            NSString* postLength = [NSString stringWithFormat:@"%d", [postData length]];
+            NSString* postLength = [NSString stringWithFormat:@"%lu", (unsigned long)[postData length]];
             NSMutableURLRequest* request = [[NSMutableURLRequest alloc] init];
             
             [request setURL:[NSURL URLWithString:connectionUrl]];
@@ -995,7 +996,7 @@ static NSString *ortcDEVICE_TOKEN;
                     channelSubscription.isSubscribing = YES;
                     channelSubscription.isSubscribed = NO;
                     
-                    int domainChannelIndex = [channel rangeOfString:@":"].location;
+                    unsigned long domainChannelIndex = [channel rangeOfString:@":"].location;
                     NSString* channelToValidate = channel;
                     NSString* hashPerm = nil;
                     
