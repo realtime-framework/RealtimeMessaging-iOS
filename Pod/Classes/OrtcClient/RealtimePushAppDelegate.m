@@ -10,7 +10,8 @@
 #import "OrtcClient.h"
 
 @implementation RealtimePushAppDelegate
-
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 80000
@@ -20,6 +21,7 @@
         [application registerForRemoteNotifications];
     } else {
         [application registerForRemoteNotificationTypes: UIUserNotificationTypeSound | UIUserNotificationTypeAlert | UIUserNotificationTypeBadge];
+
     }
 #else
     [application registerForRemoteNotificationTypes: UIUserNotificationTypeSound | UIUserNotificationTypeAlert | UIUserNotificationTypeBadge];
@@ -27,7 +29,7 @@
     
     return YES;
 }
-
+#pragma clang diagnostic pop
 
 - (void)application:(UIApplication*)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData*)deviceToken {
     
