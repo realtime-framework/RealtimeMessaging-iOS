@@ -1279,12 +1279,9 @@ static NSString *ortcDEVICE_TOKEN;
 						[messagesBuffer setObject:msgSentDict forKey:messageId];
 					}
                     
-
                     aMessage = [self escapeRecvChars:aMessage];
                     
-                    NSData *pos = [aMessage dataUsingEncoding:NSUTF8StringEncoding];
-                    aMessage = [[NSString alloc] initWithData:pos encoding:NSNonLossyASCIIStringEncoding];
-                    
+                    aMessage = [self checkForEmoji:aMessage];
 					channelSubscription.onMessage(self, aChannel, aMessage);
 				}
             }
@@ -1292,12 +1289,34 @@ static NSString *ortcDEVICE_TOKEN;
     }
 }
 
+
+- (NSString*)checkForEmoji:(NSString*)str{
+    for (int i = 0; i < str.length; i++) {
+        unichar ascii = [str characterAtIndex:i];
+        if(ascii == '\\'){
+            i = i + 1;
+            int next = [str characterAtIndex:i];
+            
+            if(next == 'u'){
+                NSString *emoji = [str substringWithRange:NSMakeRange(i - 1, 12)];
+                NSData *pos = [emoji dataUsingEncoding:NSUTF8StringEncoding];
+                emoji = [[NSString alloc] initWithData:pos encoding:NSNonLossyASCIIStringEncoding];
+                
+                str = [str stringByReplacingCharactersInRange:NSMakeRange(i - 1, 12) withString:emoji];
+            }
+        }
+    }
+    return str;
+}
+
+
 - (NSString*)escapeRecvChars:(NSString*) str{
     str = [self simulateJsonParse:str];
     str = [self simulateJsonParse:str];
     return str;
 }
-- (NSString*)simulateJsonParse:(NSString*) str{
+
+- (NSString*)simulateJsonParse:(NSString*)str{
     NSMutableString *ms = [NSMutableString string];
     for(int i =0; i < [str length]; i++){
         unichar ascii = [str characterAtIndex:i];
@@ -1334,31 +1353,7 @@ static NSString *ortcDEVICE_TOKEN;
     
     
 
-
     return  ms ;
-}
-
-
-- (NSString *) escapedUnicode:(NSString*)str
-{
-    NSMutableString *uniString = [ [ NSMutableString alloc ] init ];
-    UniChar *uniBuffer = (UniChar *) malloc ( sizeof(UniChar) * [ str length ] );
-    CFRange stringRange = CFRangeMake ( 0, [ str length ] );
-    
-    CFStringGetCharacters ( (CFStringRef)str, stringRange, uniBuffer );
-    
-    for ( int i = 0; i < [ str length ]; i++ ) {
-        if ( uniBuffer[i] > 0x7e )
-            [ uniString appendFormat: @"\\u%04x", uniBuffer[i] ];
-        else
-            [ uniString appendFormat: @"%c", uniBuffer[i] ];
-    }
-    
-    free ( uniBuffer );
-    
-    NSString *retString = [ NSString stringWithString: uniString ];
-    
-    return retString;
 }
 
 
