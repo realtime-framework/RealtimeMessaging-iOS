@@ -1291,18 +1291,31 @@ static NSString *ortcDEVICE_TOKEN;
 
 
 - (NSString*)checkForEmoji:(NSString*)str{
-    for (int i = 0; i < str.length; i++) {
+    for (int i = 0; i < [str length]; i++) {
         unichar ascii = [str characterAtIndex:i];
         if(ascii == '\\'){
             i = i + 1;
             int next = [str characterAtIndex:i];
             
             if(next == 'u'){
-                NSString *emoji = [str substringWithRange:NSMakeRange(i - 1, 12)];
-                NSData *pos = [emoji dataUsingEncoding:NSUTF8StringEncoding];
-                emoji = [[NSString alloc] initWithData:pos encoding:NSNonLossyASCIIStringEncoding];
-                
-                str = [str stringByReplacingCharactersInRange:NSMakeRange(i - 1, 12) withString:emoji];
+                @try {
+                    NSString *emoji = [str substringWithRange:NSMakeRange(i - 1, 12)];
+                    NSData *pos = [emoji dataUsingEncoding:NSUTF8StringEncoding];
+                    emoji = [[NSString alloc] initWithData:pos encoding:NSNonLossyASCIIStringEncoding];
+                    
+                    str = [str stringByReplacingCharactersInRange:NSMakeRange(i - 1, 12) withString:emoji];
+                    
+                } @catch (NSException *e) {
+                    @try {
+                        NSString *emoji = [str substringWithRange:NSMakeRange(i - 1, 6)];
+                        NSData *pos = [emoji dataUsingEncoding:NSUTF8StringEncoding];
+                        emoji = [[NSString alloc] initWithData:pos encoding:NSNonLossyASCIIStringEncoding];
+                        
+                        str = [str stringByReplacingCharactersInRange:NSMakeRange(i - 1, 6) withString:emoji];
+                    } @catch (NSException *e) {
+                        return str;
+                    }
+                }
             }
         }
     }
