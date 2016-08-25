@@ -19,7 +19,7 @@ DESC
   s.homepage         = "http://framework.realtime.co/messaging"
   s.license          = 'MIT'
   s.author           = { "Realtime.co" => "framework@realtime.co" }
-  s.source           = { :git => "https://github.com/realtime-framework/RealtimeMessaging-iOS.git", :tag => "2.1.24"}
+  s.source           = { :git => "https://github.com/realtime-framework/RealtimeMessaging-iOS.git", :tag => "2.1.26"}
   s.social_media_url = 'https://twitter.com/RTWworld'
 
   s.platform     = :ios, '7.0'
