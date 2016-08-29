@@ -84,13 +84,16 @@
 @property (assign) BOOL isSubscribed;
 @property (assign) BOOL subscribeOnReconnected;
 @property (assign) BOOL withNotifications;
+@property (assign) BOOL withFilter;
+@property (nonatomic, retain) NSString *filter;
 @property (nonatomic, strong) void (^onMessage)(OrtcClient* ortc, NSString* channel, NSString* message);
+@property (nonatomic, strong) void (^onMessageWithFilter)(OrtcClient* ortc, NSString* channel, BOOL filtered, NSString* message);
 
 @end
 
 @interface PresenceRequest : NSObject {
- 	NSMutableData *receivedData;
- 	bool isResponseJSON;
+    NSMutableData *receivedData;
+    bool isResponseJSON;
 }
 @property (nonatomic,retain) NSMutableData *receivedData;
 @property bool isResponseJSON;
@@ -143,6 +146,7 @@ NSString* const VALIDATED_PATTERN = @"^(\\\\\"up\\\\\":){1}(.*?)(,\\\\\"set\\\\\
 NSString* const CHANNEL_PATTERN = @"^\\\\\"ch\\\\\":\\\\\"(.*?)\\\\\"$";
 NSString* const EXCEPTION_PATTERN = @"^\\\\\"ex\\\\\":\\{(\\\\\"op\\\\\":\\\\\"(.*?[^\"]+)\\\\\",)?(\\\\\"ch\\\\\":\\\\\"(.*?)\\\\\",)?\\\\\"ex\\\\\":\\\\\"(.*?)\\\\\"\\}$";
 NSString* const RECEIVED_PATTERN = @"^a\\[\"\\{\\\\\"ch\\\\\":\\\\\"(.*?)\\\\\",\\\\\"m\\\\\":\\\\\"([\\s\\S]*?)\\\\\"\\}\"\\]$";
+NSString* const RECEIVED_PATTERN_FILTERED = @"^a\\[\"\\{\\\\\"ch\\\\\":\\\\\"(.*?)\\\\\",\\\\\"f\\\\\":(.*),\\\\\"m\\\\\":\\\\\"([\\s\\S]*?)\\\\\"\\}\"\\]$";
 NSString* const MULTI_PART_MESSAGE_PATTERN = @"^(.[^_]*?)_(.[^-]*?)-(.[^_]*?)_([\\s\\S]*?)$";
 NSString* const CLUSTER_RESPONSE_PATTERN = @"^var SOCKET_SERVER = \\\"(.*?)\\\";$";
 NSString* const DEVICE_TOKEN_PATTERN = @"[0-9A-Fa-f]{64}";
@@ -246,9 +250,9 @@ NSString* const PLATFORM = @"Apns";
     else {
         
         aMessage = [[aMessage stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"] stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"];
-		aMessage = [aMessage stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
-		
-		NSData* channelBytes = [channel dataUsingEncoding:NSUTF8StringEncoding];
+        aMessage = [aMessage stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
+        
+        NSData* channelBytes = [channel dataUsingEncoding:NSUTF8StringEncoding];
         
         if (channelBytes.length >= MAX_CHANNEL_SIZE) {
             [self delegateExceptionCallback:self error:[self generateError:[NSString stringWithFormat:@"Channel size exceeds the limit of %d characters", MAX_CHANNEL_SIZE]]];
@@ -258,7 +262,7 @@ NSString* const PLATFORM = @"Apns";
             NSString* channelToValidate = channel;
             NSString* hashPerm = nil;
             
-
+            
             if (domainChannelIndex != NSNotFound) {
                 channelToValidate = [[channel substringToIndex:domainChannelIndex + 1] stringByAppendingString:@"*"];
             }
@@ -271,7 +275,7 @@ NSString* const PLATFORM = @"Apns";
                 [self delegateExceptionCallback:self error:[self generateError:[NSString stringWithFormat:@"No permission found to send to the channel '%@'", channel]]];
             }
             else {
-				
+                
                 NSData* messageBytes = [NSData dataWithBytes:[aMessage UTF8String] length:[aMessage lengthOfBytesUsingEncoding:NSUTF8StringEncoding]];
                 
                 NSMutableArray* messageParts = [[NSMutableArray alloc] init];
@@ -318,18 +322,23 @@ NSString* const PLATFORM = @"Apns";
 - (void)subscribe:(NSString*) channel subscribeOnReconnected:(BOOL) aSubscribeOnReconnected onMessage:(void (^)(OrtcClient* ortc, NSString* channel, NSString* message)) onMessage
 {
     
-    [self subscribeChannel:channel WithNotifications:WITHOUT_NOTIFICATIONS subscribeOnReconnected:aSubscribeOnReconnected onMessage:onMessage];
+    [self subscribeChannel:channel WithNotifications:WITHOUT_NOTIFICATIONS withFilter:NO filter:@"" subscribeOnReconnected:aSubscribeOnReconnected onMessage:onMessage onMessageWithFilter: nil];
 }
 
+- (void)subscribeWithFilter:(NSString*) channel subscribeOnReconnected:(BOOL) aSubscribeOnReconnected filter:(NSString*) aFilter onMessage:(void (^)(OrtcClient* ortc, NSString* channel, BOOL filtered, NSString* message)) onMessage
+{
+    
+    [self subscribeChannel:channel WithNotifications:WITHOUT_NOTIFICATIONS withFilter:YES filter:aFilter subscribeOnReconnected:aSubscribeOnReconnected onMessage:nil onMessageWithFilter: onMessage];
+}
 
 - (void)subscribeWithNotifications:(NSString*) channel subscribeOnReconnected:(BOOL) aSubscribeOnReconnected onMessage:(void (^)(OrtcClient* ortc, NSString* channel, NSString* message)) onMessage
 {
-    [self subscribeChannel:channel WithNotifications:WITH_NOTIFICATIONS subscribeOnReconnected:aSubscribeOnReconnected onMessage:onMessage];
+    [self subscribeChannel:channel WithNotifications:WITH_NOTIFICATIONS withFilter:NO filter:@"" subscribeOnReconnected:aSubscribeOnReconnected onMessage:onMessage onMessageWithFilter: nil];
 }
 
 
 
-- (void)subscribeChannel:(NSString*) channel WithNotifications:(BOOL) withNotifications subscribeOnReconnected:(BOOL) aSubscribeOnReconnected onMessage:(void (^)(OrtcClient* ortc, NSString* channel, NSString* message)) onMessage
+- (void)subscribeChannel:(NSString*) channel WithNotifications:(BOOL) withNotifications withFilter:(BOOL) withFilter filter:(NSString*)aFilter subscribeOnReconnected:(BOOL) aSubscribeOnReconnected onMessage:(void (^)(OrtcClient* ortc, NSString* channel, NSString* message)) onMessage onMessageWithFilter:(void (^)(OrtcClient* ortc, NSString* channel, BOOL filtered, NSString* message)) onMessageWithFilter
 {
     if ([self checkChannelSubscription:channel WithNotifications:withNotifications]) {
         
@@ -343,7 +352,15 @@ NSString* const PLATFORM = @"Apns";
                 channelSubscription.isSubscribing = YES;
                 channelSubscription.isSubscribed = NO;
                 channelSubscription.subscribeOnReconnected = aSubscribeOnReconnected;
-                channelSubscription.onMessage = [onMessage copy];
+                channelSubscription.withFilter = withFilter;
+                channelSubscription.filter = aFilter;
+                
+                if (withFilter) {
+                    channelSubscription.onMessageWithFilter = [onMessageWithFilter copy];
+                }else{
+                    channelSubscription.onMessage = [onMessage copy];
+                }
+                
                 channelSubscription.withNotifications = withNotifications;
                 // Add to subscribed channels dictionary
                 [_subscribedChannels setObject:channelSubscription forKey:channel];
@@ -351,22 +368,24 @@ NSString* const PLATFORM = @"Apns";
             
             NSString* aString = nil;
             if (withNotifications) {
-				if (![self isEmpty:[OrtcClient getDEVICE_TOKEN]]) {
-					aString = [NSString stringWithFormat:@"\"subscribe;%@;%@;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, hashPerm, [OrtcClient getDEVICE_TOKEN], PLATFORM];
-				}
-				else {
-					[self delegateExceptionCallback:self error:[self generateError:@"Failed to register Device Token. Channel subscribed without Push Notifications"]];
-					aString = [NSString stringWithFormat:@"\"subscribe;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, hashPerm];
-				}
-			}
+                if (![self isEmpty:[OrtcClient getDEVICE_TOKEN]]) {
+                    aString = [NSString stringWithFormat:@"\"subscribe;%@;%@;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, hashPerm, [OrtcClient getDEVICE_TOKEN], PLATFORM];
+                }
+                else {
+                    [self delegateExceptionCallback:self error:[self generateError:@"Failed to register Device Token. Channel subscribed without Push Notifications"]];
+                    aString = [NSString stringWithFormat:@"\"subscribe;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, hashPerm];
+                }
+            } else if(withFilter){
+                aString = [NSString stringWithFormat:@"\"subscribefilter;%@;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, hashPerm, aFilter];
+            }
             else {
                 aString = [NSString stringWithFormat:@"\"subscribe;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, hashPerm];
             }
-			//NSLog(@"SUB ON ORTC:\n%@",aString);
-			if (![self isEmpty:aString]) {
-				[_webSocket send:aString];
-			}
-		}
+            //NSLog(@"SUB ON ORTC:\n%@",aString);
+            if (![self isEmpty:aString]) {
+                [_webSocket send:aString];
+            }
+        }
     }
 }
 
@@ -397,65 +416,65 @@ NSString* const PLATFORM = @"Apns";
         else {
             NSString* aString = [[NSString alloc] init];
             if (channelSubscription.withNotifications) {
-				if (![self isEmpty:[OrtcClient getDEVICE_TOKEN]]) {
-					aString = [NSString stringWithFormat:@"\"unsubscribe;%@;%@;%@;%@\"", applicationKey, channel, [OrtcClient getDEVICE_TOKEN], PLATFORM];
-				}
-				else {
-					aString = [NSString stringWithFormat:@"\"unsubscribe;%@;%@\"", applicationKey, channel];
-				}
-			}
+                if (![self isEmpty:[OrtcClient getDEVICE_TOKEN]]) {
+                    aString = [NSString stringWithFormat:@"\"unsubscribe;%@;%@;%@;%@\"", applicationKey, channel, [OrtcClient getDEVICE_TOKEN], PLATFORM];
+                }
+                else {
+                    aString = [NSString stringWithFormat:@"\"unsubscribe;%@;%@\"", applicationKey, channel];
+                }
+            }
             else {
                 aString = [NSString stringWithFormat:@"\"unsubscribe;%@;%@\"", applicationKey, channel];
             }
-			//NSLog(@"UNSUB ON ORTC:\n%@",aString);
-			if (![self isEmpty:aString]) {
-				[_webSocket send:aString];
-			}
+            //NSLog(@"UNSUB ON ORTC:\n%@",aString);
+            if (![self isEmpty:aString]) {
+                [_webSocket send:aString];
+            }
         }
     }
 }
 
 - (BOOL) checkChannelSubscription:(NSString *) channel WithNotifications:(BOOL) withNotifications
 {
-	ChannelSubscription* channelSubscription = [_subscribedChannels objectForKey:channel];
-	/*
-	 * Sanity Checks.
-	 */
-	if (!isConnected) {
-		[self delegateExceptionCallback:self error:[self generateError:@"Not connected"]];
-		return NO;
-	}
-	else if ([self isEmpty:channel]) {
-		[self delegateExceptionCallback:self error:[self generateError:@"Channel is null or empty"]];
-		return NO;
-	}
-	else if (withNotifications) {
-		if (![self ortcIsValidChannelForMobile:channel]) {
-			[self delegateExceptionCallback:self error:[self generateError:@"Channel has invalid characters"]];
-			return NO;
-		}
-	}
-	else if (![self ortcIsValidInput:channel]) {
-		[self delegateExceptionCallback:self error:[self generateError:@"Channel has invalid characters"]];
-		return NO;
-	}
-	else if (channelSubscription.isSubscribing) {
-		[self delegateExceptionCallback:self error:[self generateError:[NSString stringWithFormat:@"Already subscribing to the channel %@", channel]]];
-		return NO;
-	}
-	else if (channelSubscription.isSubscribed) {
-		[self delegateExceptionCallback:self error:[self generateError:[NSString stringWithFormat:@"Already subscribed to the channel %@", channel]]];
-		return NO;
-	}
-	else {
-		NSData* channelBytes = [NSData dataWithBytes:[channel UTF8String] length:[channel lengthOfBytesUsingEncoding:NSUTF8StringEncoding]];
-		
-		if (channelBytes.length >= MAX_CHANNEL_SIZE) {
-			[self delegateExceptionCallback:self error:[self generateError:[NSString stringWithFormat:@"Channel size exceeds the limit of %d characters", MAX_CHANNEL_SIZE]]];
-			return NO;
-		}
-	}
-	return YES;
+    ChannelSubscription* channelSubscription = [_subscribedChannels objectForKey:channel];
+    /*
+     * Sanity Checks.
+     */
+    if (!isConnected) {
+        [self delegateExceptionCallback:self error:[self generateError:@"Not connected"]];
+        return NO;
+    }
+    else if ([self isEmpty:channel]) {
+        [self delegateExceptionCallback:self error:[self generateError:@"Channel is null or empty"]];
+        return NO;
+    }
+    else if (withNotifications) {
+        if (![self ortcIsValidChannelForMobile:channel]) {
+            [self delegateExceptionCallback:self error:[self generateError:@"Channel has invalid characters"]];
+            return NO;
+        }
+    }
+    else if (![self ortcIsValidInput:channel]) {
+        [self delegateExceptionCallback:self error:[self generateError:@"Channel has invalid characters"]];
+        return NO;
+    }
+    else if (channelSubscription.isSubscribing) {
+        [self delegateExceptionCallback:self error:[self generateError:[NSString stringWithFormat:@"Already subscribing to the channel %@", channel]]];
+        return NO;
+    }
+    else if (channelSubscription.isSubscribed) {
+        [self delegateExceptionCallback:self error:[self generateError:[NSString stringWithFormat:@"Already subscribed to the channel %@", channel]]];
+        return NO;
+    }
+    else {
+        NSData* channelBytes = [NSData dataWithBytes:[channel UTF8String] length:[channel lengthOfBytesUsingEncoding:NSUTF8StringEncoding]];
+        
+        if (channelBytes.length >= MAX_CHANNEL_SIZE) {
+            [self delegateExceptionCallback:self error:[self generateError:[NSString stringWithFormat:@"Channel size exceeds the limit of %d characters", MAX_CHANNEL_SIZE]]];
+            return NO;
+        }
+    }
+    return YES;
 }
 
 
@@ -561,7 +580,7 @@ NSString* const PLATFORM = @"Apns";
             
             NSString* post = [NSString stringWithFormat:@"AT=%@&PVT=%@&AK=%@&TTL=%d&PK=%@", aAuthenticationToken, aAuthenticationTokenIsPrivate ? @"1" : @"0", aApplicationKey, aTimeToLive, aPrivateKey];
             
-            if (aPermissions && aPermissions.count > 0) 
+            if (aPermissions && aPermissions.count > 0)
             {
                 post = [post stringByAppendingString:[NSString stringWithFormat:@"&TP=%lu", (unsigned long)aPermissions.count]];
                 
@@ -625,12 +644,12 @@ NSString* const PLATFORM = @"Apns";
         NSString* connectionUrl = aUrl;
         if (aIsCluster) {
             connectionUrl = [[self getClusterServer:YES aPostUrl:aUrl] copy];
-        }        
+        }
         if (connectionUrl) {
             connectionUrl = [connectionUrl hasSuffix:@"/"] ? connectionUrl : [connectionUrl stringByAppendingString:@"/"];
             NSString* path = [NSString stringWithFormat:@"presence/enable/%@/%@", aApplicationKey, channel];
             connectionUrl = [connectionUrl stringByAppendingString:path];
-            NSString* content = [NSString stringWithFormat:@"privatekey=%@&metadata=%@", aPrivateKey, (aMetadata ? @"1" : @"0")];            
+            NSString* content = [NSString stringWithFormat:@"privatekey=%@&metadata=%@", aPrivateKey, (aMetadata ? @"1" : @"0")];
             NSData* postData = [content dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:YES];
             NSString* postLength = [NSString stringWithFormat:@"%lu", (unsigned long)[postData length]];
             NSMutableURLRequest* request = [[NSMutableURLRequest alloc] init];
@@ -640,7 +659,7 @@ NSString* const PLATFORM = @"Apns";
             [request setValue:postLength forHTTPHeaderField:@"Content-Length"];
             [request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
             [request setHTTPBody:postData];
-
+            
             PresenceRequest *pr = [[PresenceRequest alloc] init];
             pr.callback = aCallback;
             [pr post:request];
@@ -730,7 +749,7 @@ NSString* const PLATFORM = @"Apns";
             connectionUrl = [connectionUrl hasSuffix:@"/"] ? connectionUrl : [connectionUrl stringByAppendingString:@"/"];
             NSString* path = [NSString stringWithFormat:@"presence/%@/%@/%@", aApplicationKey, aAuthenticationToken, channel];
             connectionUrl = [connectionUrl stringByAppendingString:path];
-
+            
             NSMutableURLRequest* request = [[NSMutableURLRequest alloc] init];
             
             [request setURL:[NSURL URLWithString:connectionUrl]];
@@ -852,7 +871,7 @@ static NSString *ortcDEVICE_TOKEN;
 - (void)doConnect:(id) sender {
     if(heartbeatTimer != nil)
         [self stopHeartbeatLoop];
-
+    
     if (isReconnecting) {
         [self delegateReconnectingCallback:self];
     }
@@ -866,7 +885,7 @@ static NSString *ortcDEVICE_TOKEN;
 {
     if (aMessage)
     {
-		if (![aMessage isEqualToString:@"o"] && ![aMessage isEqualToString:@"h"]) // Open and Heartbeat
+        if (![aMessage isEqualToString:@"o"] && ![aMessage isEqualToString:@"h"]) // Open and Heartbeat
         {
             //aMessage = [[aMessage stringByReplacingOccurrencesOfString:@"\\\"" withString:@"\""] stringByReplacingOccurrencesOfString:@"\\\\\\\\n" withString:@"\\n"];
             //NSRegularExpression* opTest = [NSRegularExpression regularExpressionWithPattern:TESTER options:0 error:NULL];
@@ -966,7 +985,7 @@ static NSString *ortcDEVICE_TOKEN;
             NSDictionary* dictionary = [NSJSONSerialization JSONObjectWithData:[userPermissions dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&err];
             
             if (err) {
-               [self delegateExceptionCallback:self error:[self generateError:@"Error parsing the permissions received from server"]];
+                [self delegateExceptionCallback:self error:[self generateError:@"Error parsing the permissions received from server"]];
             }
             else {
                 _permissions = [[NSMutableDictionary alloc] init];
@@ -1009,23 +1028,25 @@ static NSString *ortcDEVICE_TOKEN;
                     }
                     
                     NSString* aString = [[NSString alloc] init];
-					aString = nil;
+                    aString = nil;
                     if (channelSubscription.withNotifications) {
-						if (![self isEmpty:[OrtcClient getDEVICE_TOKEN]]) {
-							aString = [NSString stringWithFormat:@"\"subscribe;%@;%@;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, hashPerm, [OrtcClient getDEVICE_TOKEN], PLATFORM];
-						}
-						else {
-							[self delegateExceptionCallback:self error:[self generateError:@"Failed to register Device Token. Channel subscribed without Push Notifications"]];
-							aString = [NSString stringWithFormat:@"\"subscribe;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, hashPerm];
-						}
-					}
+                        if (![self isEmpty:[OrtcClient getDEVICE_TOKEN]]) {
+                            aString = [NSString stringWithFormat:@"\"subscribe;%@;%@;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, hashPerm, [OrtcClient getDEVICE_TOKEN], PLATFORM];
+                        }
+                        else {
+                            [self delegateExceptionCallback:self error:[self generateError:@"Failed to register Device Token. Channel subscribed without Push Notifications"]];
+                            aString = [NSString stringWithFormat:@"\"subscribe;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, hashPerm];
+                        }
+                    }else if(channelSubscription.withFilter){
+                        aString = [NSString stringWithFormat:@"\"subscribefilter;%@;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, hashPerm, channelSubscription.filter];
+                    }
                     else {
                         aString = [NSString stringWithFormat:@"\"subscribe;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, hashPerm];
                     }
-					//NSLog(@"SUB ON ORTC:\n%@",aString);
-					if (![self isEmpty:aString]) {
-						[_webSocket send:aString];
-					}
+                    //NSLog(@"SUB ON ORTC:\n%@",aString);
+                    if (![self isEmpty:aString]) {
+                        [_webSocket send:aString];
+                    }
                 }
                 else {
                     [channelsToRemove addObject:channel];
@@ -1037,7 +1058,7 @@ static NSString *ortcDEVICE_TOKEN;
             }
             // Clean messages buffer (can have lost message parts in memory)
             [messagesBuffer removeAllObjects];
-			[OrtcClient removeReceivedNotifications];
+            [OrtcClient removeReceivedNotifications];
             [self delegateReconnectedCallback:self];
         }
         else {
@@ -1098,7 +1119,7 @@ static NSString *ortcDEVICE_TOKEN;
     }
 }
 
-- (void)opException:(NSString*) message {                                                                                         
+- (void)opException:(NSString*) message {
     NSRegularExpression* exRegex = [NSRegularExpression regularExpressionWithPattern:EXCEPTION_PATTERN options:0 error:NULL];
     NSTextCheckingResult* exMatch = [exRegex firstMatchInString:message options:0 range:NSMakeRange(0, [message length])];
     
@@ -1177,6 +1198,9 @@ static NSString *ortcDEVICE_TOKEN;
 - (void)opReceive:(NSString*) message {
     NSRegularExpression* recRegex = [NSRegularExpression regularExpressionWithPattern:RECEIVED_PATTERN options:0 error:NULL];
     NSTextCheckingResult* recMatch = [recRegex firstMatchInString:message options:0 range:NSMakeRange(0, [message length])];
+    
+    NSRegularExpression* recRegexFiltered = [NSRegularExpression regularExpressionWithPattern:RECEIVED_PATTERN_FILTERED options:0 error:NULL];
+    NSTextCheckingResult* recMatchFiltered = [recRegexFiltered firstMatchInString:message options:0 range:NSMakeRange(0, [message length])];
     
     if (recMatch)
     {
@@ -1265,25 +1289,138 @@ static NSString *ortcDEVICE_TOKEN;
                         // Delete from messages buffer
                         [messageBufferId removeObjectForKey:[NSString stringWithFormat:@"%d", i]];
                     }
-				}
-				
-				if ([messagesBuffer objectForKey:messageId] && [[[messagesBuffer objectForKey:messageId] objectForKey:@"isMsgSent"] boolValue]) {
-					[messagesBuffer removeObjectForKey:messageId];
-				}
-				else if ([_subscribedChannels objectForKey:aChannel]) {
+                }
+                
+                if ([messagesBuffer objectForKey:messageId] && [[[messagesBuffer objectForKey:messageId] objectForKey:@"isMsgSent"] boolValue]) {
+                    [messagesBuffer removeObjectForKey:messageId];
+                }
+                else if ([_subscribedChannels objectForKey:aChannel]) {
                     ChannelSubscription* channelSubscription = [_subscribedChannels objectForKey:aChannel];
-					
+                    
                     if (![self isEmpty:messageId]) {
-						NSMutableDictionary *msgSentDict = [messagesBuffer objectForKey:messageId];
-						[msgSentDict setObject:[NSNumber numberWithBool:YES] forKey:@"isMsgSent"];
-						[messagesBuffer setObject:msgSentDict forKey:messageId];
-					}
+                        NSMutableDictionary *msgSentDict = [messagesBuffer objectForKey:messageId];
+                        [msgSentDict setObject:[NSNumber numberWithBool:YES] forKey:@"isMsgSent"];
+                        [messagesBuffer setObject:msgSentDict forKey:messageId];
+                    }
                     
                     aMessage = [self escapeRecvChars:aMessage];
                     
                     aMessage = [self checkForEmoji:aMessage];
-					channelSubscription.onMessage(self, aChannel, aMessage);
-				}
+                    channelSubscription.onMessage(self, aChannel, aMessage);
+                }
+            }
+        }
+    }else if (recMatchFiltered){
+        NSString* aChannel = nil;
+        NSString* aMessage = nil;
+        NSString* aFiltered = nil;
+        
+        NSRange strRangeChn = [recMatchFiltered rangeAtIndex:1];
+        NSRange strRangeFiltered = [recMatchFiltered rangeAtIndex:2];
+        NSRange strRangeMsg = [recMatchFiltered rangeAtIndex:3];
+        
+        if (strRangeChn.location != NSNotFound) {
+            aChannel = [message substringWithRange:strRangeChn];
+        }
+        
+        if (strRangeFiltered.location != NSNotFound) {
+            aFiltered = [message substringWithRange:strRangeFiltered];
+        }
+        
+        if (strRangeMsg.location != NSNotFound) {
+            aMessage = [message substringWithRange:strRangeMsg];
+        }
+        
+        if (aChannel && aMessage && aFiltered) {
+            //aMessage = [[[aMessage stringByReplacingOccurrencesOfString:@"\\\\n" withString:@"\n"] stringByReplacingOccurrencesOfString:@"\\\\\"" withString:@"\""] stringByReplacingOccurrencesOfString:@"\\\\\\\\" withString:@"\\"];
+            
+            // Multi part
+            NSRegularExpression* msgRegex = [NSRegularExpression regularExpressionWithPattern:MULTI_PART_MESSAGE_PATTERN options:0 error:NULL];
+            NSTextCheckingResult* multiMatch = [msgRegex firstMatchInString:aMessage options:0 range:NSMakeRange(0, [aMessage length])];
+            
+            NSString* messageId = nil;
+            int messageCurrentPart = 1;
+            int messageTotalPart = 1;
+            BOOL lastPart = NO;
+            
+            if (multiMatch)
+            {
+                NSRange strRangeMsgId = [multiMatch rangeAtIndex:1];
+                NSRange strRangeMsgCurPart = [multiMatch rangeAtIndex:2];
+                NSRange strRangeMsgTotPart = [multiMatch rangeAtIndex:3];
+                NSRange strRangeMsgRec = [multiMatch rangeAtIndex:4];
+                
+                if (strRangeMsgId.location != NSNotFound) {
+                    messageId = [aMessage substringWithRange:strRangeMsgId];
+                }
+                
+                if (strRangeMsgCurPart.location != NSNotFound) {
+                    messageCurrentPart = [[aMessage substringWithRange:strRangeMsgCurPart] intValue];
+                }
+                
+                if (strRangeMsgTotPart.location != NSNotFound) {
+                    messageTotalPart = [[aMessage substringWithRange:strRangeMsgTotPart] intValue];
+                }
+                
+                if (strRangeMsgRec.location != NSNotFound) {
+                    aMessage = [aMessage substringWithRange:strRangeMsgRec];
+                    //code below written by Rafa, gives a bug for a meesage containing % character
+                    //aMessage = [[aMessage substringWithRange:strRangeMsgRec] stringByReplacingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+                }
+            }
+            // Is a message part
+            if (![self isEmpty:messageId]) {
+                if (![messagesBuffer objectForKey:messageId]) {
+                    
+                    NSMutableDictionary *msgSentDict = [[NSMutableDictionary alloc] init];
+                    [msgSentDict setObject:[NSNumber numberWithBool:NO] forKey:@"isMsgSent"];
+                    [messagesBuffer setObject:msgSentDict forKey:messageId];
+                }
+                
+                NSMutableDictionary* messageBufferId = [messagesBuffer objectForKey:messageId];
+                [messageBufferId setObject:aMessage forKey:[NSString stringWithFormat:@"%d", messageCurrentPart]];
+                
+                // Last message part -1 isMsgSent Key
+                if (([[messageBufferId allKeys] count] -1) == messageTotalPart) {
+                    lastPart = YES;
+                }
+            }
+            // Message does not have multipart, like the messages received at announcement channels
+            else {
+                lastPart = YES;
+            }
+            
+            if (lastPart) {
+                if (![self isEmpty:messageId]) {
+                    aMessage = @"";
+                    NSMutableDictionary* messageBufferId = [messagesBuffer objectForKey:messageId];
+                    
+                    for (int i = 1; i <= messageTotalPart; i++) {
+                        NSString* messagePart = [messageBufferId objectForKey:[NSString stringWithFormat:@"%d", i]];
+                        
+                        aMessage = [aMessage stringByAppendingString:messagePart];
+                        // Delete from messages buffer
+                        [messageBufferId removeObjectForKey:[NSString stringWithFormat:@"%d", i]];
+                    }
+                }
+                
+                if ([messagesBuffer objectForKey:messageId] && [[[messagesBuffer objectForKey:messageId] objectForKey:@"isMsgSent"] boolValue]) {
+                    [messagesBuffer removeObjectForKey:messageId];
+                }
+                else if ([_subscribedChannels objectForKey:aChannel]) {
+                    ChannelSubscription* channelSubscription = [_subscribedChannels objectForKey:aChannel];
+                    
+                    if (![self isEmpty:messageId]) {
+                        NSMutableDictionary *msgSentDict = [messagesBuffer objectForKey:messageId];
+                        [msgSentDict setObject:[NSNumber numberWithBool:YES] forKey:@"isMsgSent"];
+                        [messagesBuffer setObject:msgSentDict forKey:messageId];
+                    }
+                    
+                    aMessage = [self escapeRecvChars:aMessage];
+                    
+                    aMessage = [self checkForEmoji:aMessage];
+                    channelSubscription.onMessageWithFilter(self, aChannel, [aFiltered boolValue], aMessage);
+                }
             }
         }
     }
@@ -1365,7 +1502,7 @@ static NSString *ortcDEVICE_TOKEN;
     }
     
     
-
+    
     return  ms ;
 }
 
@@ -1413,7 +1550,7 @@ static NSString *ortcDEVICE_TOKEN;
 - (void)processDisconnect:(BOOL) callDisconnectedCallback
 {
     [self stopHeartbeatLoop];
-
+    
     _webSocket.delegate = nil;
     [_webSocket close];
     
@@ -1432,10 +1569,10 @@ static NSString *ortcDEVICE_TOKEN;
 {
     if (!stopReconnecting) {
         /*
-        if (isCluster) {
-            url = [[self getClusterServer:NO aPostUrl:clusterUrl] copy];
-            isCluster = YES;
-        }*/
+         if (isCluster) {
+         url = [[self getClusterServer:NO aPostUrl:clusterUrl] copy];
+         isCluster = YES;
+         }*/
         
         (void)[[Balancer alloc] initWithCluster:clusterUrl serverUrl:url isCluster:isCluster appKey:applicationKey callback: ^(NSString* balancerResponse){
             url = balancerResponse;
@@ -1451,7 +1588,7 @@ static NSString *ortcDEVICE_TOKEN;
                 
                 if ([connectionUrl.scheme isEqualToString:@"https"]) {
                     wsScheme = @"wss";
-                    #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
                     tlsSettings = [[NSDictionary alloc] initWithObjectsAndKeys:[NSNumber numberWithBool:YES], kCFStreamSSLAllowsExpiredCertificates, [NSNumber numberWithBool:YES], kCFStreamSSLAllowsAnyRoot, [NSNumber numberWithBool:NO], kCFStreamSSLValidatesCertificateChain, kCFNull, kCFStreamSSLPeerName, kCFStreamSocketSecurityLevelSSLv3, kCFStreamSSLLevel, nil];
                 }
                 
@@ -1573,14 +1710,14 @@ static NSString *ortcDEVICE_TOKEN;
         }
     }
     
-    if (!isPostingAuth) 
+    if (!isPostingAuth)
     {
         if ([self isEmpty:result])
         {
             [self delegateExceptionCallback:self error:[self generateError:[NSString stringWithFormat:@"Unable to get URL from cluster (%@)", parsedUrl]]];
         }
     }
-        
+    
     return result;
 }
 
@@ -1610,8 +1747,8 @@ static NSString *ortcDEVICE_TOKEN;
 - (void)webSocket:(SRWebSocket *)webSocket didFailWithError:(NSError *)error
 {
     isConnecting = NO;
-	
-	// Reconnect
+    
+    // Reconnect
     if (!stopReconnecting) {
         isConnecting = YES;
         stopReconnecting = NO;
@@ -1633,7 +1770,7 @@ static NSString *ortcDEVICE_TOKEN;
             [self doConnect:self];
         }
         else {
-
+            
             [NSTimer scheduledTimerWithTimeInterval:connectionTimeout target:self selector:@selector(doConnect:) userInfo:nil repeats:NO];
         }
     }
@@ -1662,7 +1799,7 @@ static NSString *ortcDEVICE_TOKEN;
 #pragma mark Lifecycle
 
 - (void) dealloc {
-	[[NSNotificationCenter defaultCenter] removeObserver:self];
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [self stopHeartbeatLoop];
 }
 
@@ -1711,15 +1848,15 @@ static NSString *ortcDEVICE_TOKEN;
         
         _subscribedChannels = [[NSMutableDictionary alloc] init];
         messagesBuffer = [[NSMutableDictionary alloc] init];
-		
-		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(receivedNotification:) name:@"ApnsNotification" object:nil];
-		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(receivedNotification:) name:@"ApnsRegisterError" object:nil];
+        
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(receivedNotification:) name:@"ApnsNotification" object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(receivedNotification:) name:@"ApnsRegisterError" object:nil];
         
         heartbeatTime = heartbeatDefaultTime; // Heartbeat interval time
         heartbeatFails = heartbeatDefaultFails; // Heartbeat max fails
         heartbeatTimer = nil;
         heartbeatActive = false;
-	}
+    }
     return self;
 }
 
@@ -1728,47 +1865,47 @@ static NSString *ortcDEVICE_TOKEN;
 - (void) receivedNotification:(NSNotification *) notification
 {
     // [notification name] should be @"ApnsNotification" for received Apns Notififications
-	if ([[notification name] isEqualToString:@"ApnsNotification"]) {
-		
-		NSDictionary *notificaionInfo = [[NSDictionary alloc] initWithDictionary:[notification userInfo]];
-		if ([[notificaionInfo objectForKey:@"A"] isEqualToString:applicationKey]) {
-			
-			NSString *ortcMessage = [NSString stringWithFormat:@"a[\"{\\\"ch\\\":\\\"%@\\\",\\\"m\\\":\\\"%@\\\"}\"]", [notificaionInfo objectForKey:@"C"], [notificaionInfo objectForKey:@"M"]];
-			[self parseReceivedMessage:ortcMessage];
-		}
-	}
-	
-	// [notification name] should be @"ApnsRegisterError" if an error ocured on RegisterForRemoteNotifications
-	if ([[notification name] isEqualToString:@"ApnsRegisterError"]) {
-		[self delegateExceptionCallback:self error:[[notification userInfo] objectForKey:@"ApnsRegisterError"]];
-	}
+    if ([[notification name] isEqualToString:@"ApnsNotification"]) {
+        
+        NSDictionary *notificaionInfo = [[NSDictionary alloc] initWithDictionary:[notification userInfo]];
+        if ([[notificaionInfo objectForKey:@"A"] isEqualToString:applicationKey]) {
+            
+            NSString *ortcMessage = [NSString stringWithFormat:@"a[\"{\\\"ch\\\":\\\"%@\\\",\\\"m\\\":\\\"%@\\\"}\"]", [notificaionInfo objectForKey:@"C"], [notificaionInfo objectForKey:@"M"]];
+            [self parseReceivedMessage:ortcMessage];
+        }
+    }
+    
+    // [notification name] should be @"ApnsRegisterError" if an error ocured on RegisterForRemoteNotifications
+    if ([[notification name] isEqualToString:@"ApnsRegisterError"]) {
+        [self delegateExceptionCallback:self error:[[notification userInfo] objectForKey:@"ApnsRegisterError"]];
+    }
 }
 
 
 - (void) parseReceivedNotifications {
-	
-	NSMutableDictionary *notificationsDict = [[NSMutableDictionary alloc] initWithDictionary:[[NSUserDefaults standardUserDefaults] objectForKey:NOTIFICATIONS_KEY]];
-	NSMutableArray *receivedMessages = [[NSMutableArray alloc] initWithArray:[notificationsDict objectForKey:applicationKey]];
-	//NSMutableArray *messages = [[NSMutableArray alloc] initWithArray:receivedMessages];
-	
-	for (NSString *message in receivedMessages) {
-		[self parseReceivedMessage:message];
-		//[receivedMessages removeObject:message];
-	}
-	[receivedMessages removeAllObjects];
-	
-	[notificationsDict setObject:receivedMessages forKey:applicationKey];
-	[[NSUserDefaults standardUserDefaults] setObject:notificationsDict forKey:NOTIFICATIONS_KEY];
-	[[NSUserDefaults standardUserDefaults] synchronize];
+    
+    NSMutableDictionary *notificationsDict = [[NSMutableDictionary alloc] initWithDictionary:[[NSUserDefaults standardUserDefaults] objectForKey:NOTIFICATIONS_KEY]];
+    NSMutableArray *receivedMessages = [[NSMutableArray alloc] initWithArray:[notificationsDict objectForKey:applicationKey]];
+    //NSMutableArray *messages = [[NSMutableArray alloc] initWithArray:receivedMessages];
+    
+    for (NSString *message in receivedMessages) {
+        [self parseReceivedMessage:message];
+        //[receivedMessages removeObject:message];
+    }
+    [receivedMessages removeAllObjects];
+    
+    [notificationsDict setObject:receivedMessages forKey:applicationKey];
+    [[NSUserDefaults standardUserDefaults] setObject:notificationsDict forKey:NOTIFICATIONS_KEY];
+    [[NSUserDefaults standardUserDefaults] synchronize];
 }
 
 + (void) removeReceivedNotifications {
-	
-	NSMutableDictionary *notificationsDict = [[NSMutableDictionary alloc] initWithDictionary:[[NSUserDefaults standardUserDefaults] objectForKey:NOTIFICATIONS_KEY]];
-	[notificationsDict removeAllObjects];
-	
-	[[NSUserDefaults standardUserDefaults] setObject:notificationsDict forKey:NOTIFICATIONS_KEY];
-	[[NSUserDefaults standardUserDefaults] synchronize];
+    
+    NSMutableDictionary *notificationsDict = [[NSMutableDictionary alloc] initWithDictionary:[[NSUserDefaults standardUserDefaults] objectForKey:NOTIFICATIONS_KEY]];
+    [notificationsDict removeAllObjects];
+    
+    [[NSUserDefaults standardUserDefaults] setObject:notificationsDict forKey:NOTIFICATIONS_KEY];
+    [[NSUserDefaults standardUserDefaults] synchronize];
 }
 
 
@@ -1782,7 +1919,7 @@ static NSString *ortcDEVICE_TOKEN;
     {
         [_ortcDelegate performSelector: @selector(onConnected:) withObject:ortc];
         [self parseReceivedNotifications];
-	}
+    }
 }
 
 /*
@@ -1792,7 +1929,7 @@ static NSString *ortcDEVICE_TOKEN;
     if (_ortcDelegate != nil && [_ortcDelegate respondsToSelector: @selector(onDisconnected:)])
     {
         [_ortcDelegate performSelector: @selector(onDisconnected:) withObject:ortc];
-	}
+    }
 }
 
 /*
@@ -1842,8 +1979,8 @@ static NSString *ortcDEVICE_TOKEN;
     if (_ortcDelegate != nil && [_ortcDelegate respondsToSelector: @selector(onReconnected:)])
     {
         [_ortcDelegate performSelector: @selector(onReconnected:) withObject: ortc];
-		[self parseReceivedNotifications];
-	}
+        [self parseReceivedNotifications];
+    }
 }
 
 
@@ -1858,11 +1995,11 @@ static NSString *ortcDEVICE_TOKEN;
 @synthesize onMessage;
 
 - (id)init {
-	if (self=[super init]) {
-		//do something here
-	}
+    if (self=[super init]) {
+        //do something here
+    }
     
-	return self;
+    return self;
 }
 
 @end
@@ -1875,7 +2012,7 @@ static NSString *ortcDEVICE_TOKEN;
 
 - init {
     if ((self = [super init])) {
- 		
+        
     }
     return self;
 }
@@ -1883,7 +2020,7 @@ static NSString *ortcDEVICE_TOKEN;
 - (void)get: (NSMutableURLRequest *)request {
     self.receivedData = [[NSMutableData alloc] init];
     self.isResponseJSON = true;
- 	NSURLConnection* ret = [[NSURLConnection alloc] initWithRequest:request delegate:self];
+    NSURLConnection* ret = [[NSURLConnection alloc] initWithRequest:request delegate:self];
     if (ret == nil){
         NSMutableDictionary* errorDetail = [NSMutableDictionary dictionary];
         [errorDetail setValue:@"The connection can't be initialized." forKey:NSLocalizedDescriptionKey];
@@ -1898,7 +2035,7 @@ static NSString *ortcDEVICE_TOKEN;
 - (void)post: (NSMutableURLRequest *)request{
     self.receivedData = [[NSMutableData alloc] init];
     self.isResponseJSON = false;
- 	NSURLConnection* ret = [[NSURLConnection alloc] initWithRequest:request delegate:self];
+    NSURLConnection* ret = [[NSURLConnection alloc] initWithRequest:request delegate:self];
     if (ret == nil){
         NSMutableDictionary* errorDetail = [NSMutableDictionary dictionary];
         [errorDetail setValue:@"The connection can't be initialized." forKey:NSLocalizedDescriptionKey];
@@ -1912,8 +2049,8 @@ static NSString *ortcDEVICE_TOKEN;
 
 #pragma mark NSURLConnection delegate methods
 - (NSURLRequest *)connection:(NSURLConnection *)connection
- 			 willSendRequest:(NSURLRequest *)request
- 			redirectResponse:(NSURLResponse *)redirectResponse {
+             willSendRequest:(NSURLRequest *)request
+            redirectResponse:(NSURLResponse *)redirectResponse {
     return request;
 }
 
@@ -1934,12 +2071,12 @@ static NSString *ortcDEVICE_TOKEN;
 }
 
 - (void)connectionDidFinishLoading:(NSURLConnection *)connection {
- 	NSString *dataStr=[[NSString alloc] initWithData:self.receivedData encoding:NSUTF8StringEncoding];
+    NSString *dataStr=[[NSString alloc] initWithData:self.receivedData encoding:NSUTF8StringEncoding];
     if(self.isResponseJSON){
         NSError* err = nil;
         NSDictionary* dictionary = nil;
         dictionary = [NSJSONSerialization JSONObjectWithData:[dataStr dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&err];
-
+        
         if (err) {
             if([dataStr caseInsensitiveCompare:@"null"] != NSOrderedSame ) {
                 NSMutableDictionary* errorDetail = [NSMutableDictionary dictionary];
