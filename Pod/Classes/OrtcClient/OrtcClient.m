@@ -325,10 +325,10 @@ NSString* const PLATFORM = @"Apns";
     [self subscribeChannel:channel WithNotifications:WITHOUT_NOTIFICATIONS withFilter:NO filter:@"" subscribeOnReconnected:aSubscribeOnReconnected onMessage:onMessage onMessageWithFilter: nil];
 }
 
-- (void)subscribeWithFilter:(NSString*) channel subscribeOnReconnected:(BOOL) aSubscribeOnReconnected filter:(NSString*) aFilter onMessage:(void (^)(OrtcClient* ortc, NSString* channel, BOOL filtered, NSString* message)) onMessage
+- (void)subscribeWithFilter:(NSString*) channel subscribeOnReconnected:(BOOL) aSubscribeOnReconnected filter:(NSString*) aFilter onMessageWithFilter:(void (^)(OrtcClient* ortc, NSString* channel, BOOL filtered, NSString* message)) onMessageWithFilter
 {
     
-    [self subscribeChannel:channel WithNotifications:WITHOUT_NOTIFICATIONS withFilter:YES filter:aFilter subscribeOnReconnected:aSubscribeOnReconnected onMessage:nil onMessageWithFilter: onMessage];
+    [self subscribeChannel:channel WithNotifications:WITHOUT_NOTIFICATIONS withFilter:YES filter:aFilter subscribeOnReconnected:aSubscribeOnReconnected onMessage:nil onMessageWithFilter: onMessageWithFilter];
 }
 
 - (void)subscribeWithNotifications:(NSString*) channel subscribeOnReconnected:(BOOL) aSubscribeOnReconnected onMessage:(void (^)(OrtcClient* ortc, NSString* channel, NSString* message)) onMessage
