@@ -8,9 +8,10 @@
 
 #import "OrtcClient.h"
 #import "Balancer.h"
+#import "SRWebSocket.h"
 
 // Class Extension (private methods)
-@interface OrtcClient()
+@interface OrtcClient() <SRWebSocketDelegate>
 {
 @private
     SRWebSocket* _webSocket;

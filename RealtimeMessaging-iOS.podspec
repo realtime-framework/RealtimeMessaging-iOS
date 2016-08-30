@@ -9,7 +9,7 @@
 
 Pod::Spec.new do |s|
   s.name             = "RealtimeMessaging-iOS"
-  s.version          = "2.1.28"
+  s.version          = "2.1.30"
   s.summary          = "Realtime Cloud Messaging (ORTC) SDK for iOS"
   s.description      = <<-DESC
 Part of the The Realtime® Framework, Realtime Cloud Messaging (aka ORTC) is a secure, fast and highly scalable cloud-hosted Pub/Sub real-time message broker for web and mobile apps.
@@ -28,6 +28,6 @@ DESC
   s.source_files = 'Pod/Classes/OrtcClient/*.{h,m}'
   s.public_header_files = 'Pod/Classes/OrtcClient/*.h'
   s.library  = 'icucore'
-  s.dependency 'SocketRocket', '~> 0.4.2'
+  s.dependency 'SocketRocket', '0.5.1'
 
 end
