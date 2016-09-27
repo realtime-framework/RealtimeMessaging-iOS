@@ -1739,6 +1739,11 @@ static NSString *ortcDEVICE_TOKEN;
     if(heartbeatActive){
         hbDetails = [NSString stringWithFormat:@";%d;%d;", heartbeatTime, heartbeatFails];
     }
+    
+    if (connectionMetadata != nil) {
+        connectionMetadata = [connectionMetadata stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
+    }
+    
     // Send validate
     NSString* aString = [NSString stringWithFormat:@"\"validate;%@;%@;%@;%@;%@%@\"", applicationKey, authenticationToken, announcementSubChannel ? announcementSubChannel : @"", sessionId ? sessionId : @"", connectionMetadata ? connectionMetadata : @"", hbDetails];
     
