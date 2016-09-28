@@ -1740,12 +1740,12 @@ static NSString *ortcDEVICE_TOKEN;
         hbDetails = [NSString stringWithFormat:@";%d;%d;", heartbeatTime, heartbeatFails];
     }
     
+    NSString *tempMetaData;
     if (connectionMetadata != nil) {
-        connectionMetadata = [connectionMetadata stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
+        tempMetaData = [[connectionMetadata stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"] stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
     }
-    
     // Send validate
-    NSString* aString = [NSString stringWithFormat:@"\"validate;%@;%@;%@;%@;%@%@\"", applicationKey, authenticationToken, announcementSubChannel ? announcementSubChannel : @"", sessionId ? sessionId : @"", connectionMetadata ? connectionMetadata : @"", hbDetails];
+    NSString* aString = [NSString stringWithFormat:@"\"validate;%@;%@;%@;%@;%@%@\"", applicationKey, authenticationToken, announcementSubChannel ? announcementSubChannel : @"", sessionId ? sessionId : @"", tempMetaData ? tempMetaData : @"", hbDetails];
     
     [_webSocket send:aString];
 }
