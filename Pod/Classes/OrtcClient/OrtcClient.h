@@ -96,18 +96,18 @@
  {
  @private
  
-    OrtcClient* ortcClient;
-    void (^onMessage)(OrtcClient* ortc, NSString* channel, NSString* message);
-    // ...
+ OrtcClient* ortcClient;
+ void (^onMessage)(OrtcClient* ortc, NSString* channel, NSString* message);
+ // ...
  }
  // ...
  @end
  
  </pre></code>
-
  
  
-- ViewController.m
+ 
+ - ViewController.m
  
  <pre><code>
  #import "ViewController.h"
@@ -115,91 +115,91 @@
  
  - (void)viewDidLoad
  {
-    [super viewDidLoad];
-    
-    // Instantiate OrtcClient
-    ortcClient = [OrtcClient ortcClientWithConfig:self];
-    
-    // Post permissions
-    @try {
-        NSMutableDictionary* myPermissions = [[NSMutableDictionary alloc] init];
-        
-        [myPermissions setObject:@"w" forKey:@"channel1"];
-        [myPermissions setObject:@"w" forKey:@"channel2"];
-        [myPermissions setObject:@"r" forKey:@"channelread"];
-        
-        BOOL postResult = [ortcClient saveAuthentication:@"http://ortc_server"
-                            isCLuster:YES authenticationToken:@"myAuthenticationToken"
-                            authenticationTokenIsPrivate:NO applicationKey:@"myApplicationKey"
-                            timeToLive:1800 privateKey:@"myPrivateKey" permissions:myPermissions];
-        
-        if (postResult) {
-            // Permissions correctly posted
-        }
-        else {
-            // Unable to post permissions
-        }
-    }
-    @catch (NSException* exception) {
-        // Exception posting permissions
-    }
-    
-    // Set connection properties
-    [ortcClient setConnectionMetadata:@"clientConnMeta"];
-    [ortcClient setClusterUrl:@"http://ortc_server"];
-    
-    // Connect
-    [ortcClient connect:@"myApplicationKey" authenticationToken:@"myAuthenticationToken"];
+ [super viewDidLoad];
+ 
+ // Instantiate OrtcClient
+ ortcClient = [OrtcClient ortcClientWithConfig:self];
+ 
+ // Post permissions
+ @try {
+ NSMutableDictionary* myPermissions = [[NSMutableDictionary alloc] init];
+ 
+ [myPermissions setObject:@"w" forKey:@"channel1"];
+ [myPermissions setObject:@"w" forKey:@"channel2"];
+ [myPermissions setObject:@"r" forKey:@"channelread"];
+ 
+ BOOL postResult = [ortcClient saveAuthentication:@"http://ortc_server"
+ isCLuster:YES authenticationToken:@"myAuthenticationToken"
+ authenticationTokenIsPrivate:NO applicationKey:@"myApplicationKey"
+ timeToLive:1800 privateKey:@"myPrivateKey" permissions:myPermissions];
+ 
+ if (postResult) {
+ // Permissions correctly posted
+ }
+ else {
+ // Unable to post permissions
+ }
+ }
+ @catch (NSException* exception) {
+ // Exception posting permissions
+ }
+ 
+ // Set connection properties
+ [ortcClient setConnectionMetadata:@"clientConnMeta"];
+ [ortcClient setClusterUrl:@"http://ortc_server"];
+ 
+ // Connect
+ [ortcClient connect:@"myApplicationKey" authenticationToken:@"myAuthenticationToken"];
  }
  
  - (void) onConnected:(OrtcClient*) ortc
  {
-    // Connected
-    onMessage = ^(OrtcClient* ortc, NSString* channel, NSString* message) {
-    // Received message 'message' at channel 'channel'
-        [ortcClient unsubscribe:channel];
-    };
-    
-    [ortcClient subscribe:@"channel1" subscribeOnReconnected:YES onMessage:onMessage];
-    [ortcClient subscribe:@"channel2" subscribeOnReconnected:NO onMessage:onMessage];
-    [ortcClient subscribeWithNotifications:@"channel3" subscribeOnReconnected:YES onMessage:onMessage];
-}
-
+ // Connected
+ onMessage = ^(OrtcClient* ortc, NSString* channel, NSString* message) {
+ // Received message 'message' at channel 'channel'
+ [ortcClient unsubscribe:channel];
+ };
+ 
+ [ortcClient subscribe:@"channel1" subscribeOnReconnected:YES onMessage:onMessage];
+ [ortcClient subscribe:@"channel2" subscribeOnReconnected:NO onMessage:onMessage];
+ [ortcClient subscribeWithNotifications:@"channel3" subscribeOnReconnected:YES onMessage:onMessage];
+ }
+ 
  - (void) onDisconnected:(OrtcClient*) ortc
  {
-    // Disconnected
+ // Disconnected
  }
-
+ 
  - (void) onReconnecting:(OrtcClient*) ortc
  {
-    // Trying to reconnect
+ // Trying to reconnect
  }
  
  - (void) onReconnected:(OrtcClient*) ortc
  {
-    // Reconnected
+ // Reconnected
  }
  
  - (void) onSubscribed:(OrtcClient*) ortc channel:(NSString*) channel
  {
-    // Subscribed to the channel 'channel'
-    [ortcClient send:channel message:@"Message to the channel"];
+ // Subscribed to the channel 'channel'
+ [ortcClient send:channel message:@"Message to the channel"];
  }
-
+ 
  - (void) onUnsubscribed:(OrtcClient*) ortc channel:(NSString*) channel
  {
-    // Unsubscribed from the channel 'channel'
-    [ortcClient disconnect];
+ // Unsubscribed from the channel 'channel'
+ [ortcClient disconnect];
  }
-
+ 
  - (void) onException:(OrtcClient*) ortc error:(NSError*) error
  {
-    // Exception occurred
+ // Exception occurred
  }
-
+ 
  @end
  </pre></code>
-*/
+ */
 
 
 
@@ -217,6 +217,8 @@
 @property (assign) int connectionTimeout;
 @property (assign) BOOL isConnected;
 
+@property (nonatomic, retain) NSMutableDictionary* pendingPublishMessages;
+@property (assign) int publishTimeout;
 
 ///---------------------------------------------------------------------------------------
 /// @name Class Methods
@@ -249,6 +251,17 @@
  * @param message The message to send.
  */
 - (void)send:(NSString*) channel message:(NSString*) message;
+
+/**
+ * Publish a message to a channel.
+ *
+ * @param channel The channel name.
+ * @param message The message to publish.
+ * @param ttl The message expiration time in seconds (0 for maximum allowed ttl).
+ * @param callback Returns error if message publish was not successful or published message unique id (seqId) if sucessfully published
+ */
+- (void)publish:(NSString*)channel message:(NSString*)aMessage ttl:(NSNumber*)ttl callback:(void(^)(NSError* error, NSString* seqId))callback;
+
 /**
  * Subscribes to a channel to receive messages sent to it.
  *
@@ -258,6 +271,35 @@
  */
 - (void)subscribe:(NSString*) channel subscribeOnReconnected:(BOOL) aSubscribeOnReconnected onMessage:(void (^)(OrtcClient* ortc, NSString* channel, NSString* message)) onMessage;
 
+/**
+ * Subscribes to a channel to receive messages sent to it with given options.
+ *
+ * @param options The subscription options dictionary, EX: "options = {
+ * channel,
+ * subscribeOnReconnected, // optional, default = true
+ * regId, // optional, default = "", device token for push notifications as in subscribeWithNotifications
+ * pushPlatform, // optional, default = "", push notifications platform as in subscribeWithNotifications
+ * filter, // optional, default = "", the subscription filter as in subscribeWithFilter
+ * subscriberId // optional, default = "", the subscriberId as in subscribeWithBuffer
+ * }".
+ * @param onMessageWithOptionsCallback The callback called when a message arrives at the channel, data is provided in a dictionary EX: "msgOptions = {
+ * channel,
+ * seqId, // the message unique identifier
+ * filtered, // true if message was properly filtered using the subscription filter
+ * message, the message received
+ * }".
+ */
+- (void)subscribeWithOptions:(NSDictionary*)options onMessageWithOptionsCallback:(void (^)(OrtcClient* ortc, NSDictionary* msgOptions)) onMessageWithOptionsCallback;
+
+/**
+ * Subscribes to a channel to receive messages published to it.
+ *
+ * @param channel The channel name.
+ * @param subscriberId The subscriberId associated to the channel.
+ * @param onMessageWithBufferCallback The callback called when a message arrives at the channel.
+ */
+- (void)subscribeWithBuffer:(NSString*)channel subscriberId:(NSString*)subscriberId
+onMessageWithBufferCallback:(void (^)(OrtcClient* ortc, NSString* channel, NSString* seqId, NSString* message))onMessageWithBufferCallback;
 
 /**
  * Subscribes to a channel, with a filter, to receive messages sent to it that validate the given filter.
