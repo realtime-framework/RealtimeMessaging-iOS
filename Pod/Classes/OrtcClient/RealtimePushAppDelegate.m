@@ -18,7 +18,7 @@
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 100000
     UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
     [center requestAuthorizationWithOptions:(UNAuthorizationOptionAlert + UNAuthorizationOptionSound) completionHandler:^(BOOL granted, NSError * _Nullable error) {
-        
+        [application registerForRemoteNotifications];
     }];
 #elif __IPHONE_OS_VERSION_MAX_ALLOWED >= 80000 && __IPHONE_OS_VERSION_MAX_ALLOWED < 100000
     if ([application respondsToSelector:@selector(registerUserNotificationSettings:)]) {
