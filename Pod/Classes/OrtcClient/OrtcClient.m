@@ -147,7 +147,7 @@ typedef enum {
 //NSString* const TESTER= @"^a\\[\"\\{\\\\\"op\\\\\"(.*?[^\"]+)\\\\\",(.*?)\\}\"\\]$";
 //NSString* const OPERATION_PATTERN = @"^a\\[\"\\{\\\"op\\\":\\\"(.*?[^\"]+)\\\",(.*?)\\}\"\\]$";
 NSString* const OPERATION_PATTERN = @"^a\\[\"\\{\\\\\"op\\\\\":\\\\\"(.*?[^\"]+)\\\\\",(.*?)\\}\"\\]$";
-
+NSString* const SEQID_PATTERN = @"^#(.*?):";
 NSString* const VALIDATED_PATTERN = @"^(\\\\\"up\\\\\":){1}(.*?)(,\\\\\"set\\\\\":(.*?))?$";
 NSString* const CHANNEL_PATTERN = @"^\\\\\"ch\\\\\":\\\\\"(.*?)\\\\\"$";
 NSString* const EXCEPTION_PATTERN = @"^\\\\\"ex\\\\\":\\{(\\\\\"op\\\\\":\\\\\"(.*?[^\"]+)\\\\\",)?(\\\\\"ch\\\\\":\\\\\"(.*?)\\\\\",)?\\\\\"ex\\\\\":\\\\\"(.*?)\\\\\"\\}$";
@@ -499,7 +499,7 @@ NSTimer* partSendInterval;
 
 - (void)subscribeWithOptions:(NSDictionary*)options onMessageWithOptionsCallback:(void (^)(OrtcClient* ortc, NSDictionary* msgOptions)) onMessageWithOptionsCallback{
     if(options) {
-        [self _subscribeOptions:[options objectForKey:@"channel"] subscribeOnReconnected:[options objectForKey:@"subscribeOnReconnected"] regId:[options objectForKey:@"regId"] filter:[options objectForKey:@"filter"] subscriberId:[options objectForKey:@"subscriberId"] onMessageWithOptionsCallback:onMessageWithOptionsCallback];
+        [self _subscribeOptions:[options objectForKey:@"channel"] subscribeOnReconnected:[options objectForKey:@"subscribeOnReconnected"] withNotifications:[options objectForKey:@"withNotifications"] filter:[options objectForKey:@"filter"] subscriberId:[options objectForKey:@"subscriberId"] onMessageWithOptionsCallback:onMessageWithOptionsCallback];
     } else {
         [self delegateExceptionCallback:self error:[self generateError:@"subscribeWithOptions called with no options"]];
     }
@@ -525,7 +525,7 @@ NSTimer* partSendInterval;
 }
 
 
-- (void)_subscribeOptions:(NSString*)channel subscribeOnReconnected:(BOOL)aSubscribeOnReconnected regId:(NSString*)regId filter:(NSString*)aFilter subscriberId:(NSString*)subscriberId onMessageWithOptionsCallback:(void (^)(OrtcClient* ortc, NSDictionary* msgOptions)) onMessageWithOptionsCallback {
+- (void)_subscribeOptions:(NSString*)channel subscribeOnReconnected:(BOOL)aSubscribeOnReconnected withNotifications:(BOOL)withNotifications filter:(NSString*)aFilter subscriberId:(NSString*)subscriberId onMessageWithOptionsCallback:(void (^)(OrtcClient* ortc, NSDictionary* msgOptions)) onMessageWithOptionsCallback {
     /*
      Sanity Checks
      */
@@ -538,7 +538,7 @@ NSTimer* partSendInterval;
     else if (![self ortcIsValidInput:channel]) {
         [self delegateExceptionCallback:self error:[self generateError:@"Channel has invalid characters"]];
     }
-    else if (![self ortcIsValidInput:subscriberId]) {
+    else if (subscriberId && ![self ortcIsValidInput:subscriberId]) {
         [self delegateExceptionCallback:self error:[self generateError:@"subscriberId has invalid characters"]];
     }
     else if ([_subscribedChannels objectForKey:channel] && [[_subscribedChannels objectForKey:channel] isSubscribing]) {
@@ -551,12 +551,14 @@ NSTimer* partSendInterval;
         [self delegateExceptionCallback:self error:[self generateError:@"Channel size exceeds the limit of ' + channelMaxSize + ' characters"]];
     }
     else {
-        
+        NSString* regId;
         if (!aSubscribeOnReconnected) {
             aSubscribeOnReconnected = true;
         }
         
-        if(!regId) {
+        if(withNotifications && withNotifications == YES && ortcDEVICE_TOKEN) {
+            regId = ortcDEVICE_TOKEN;
+        }else{
             regId = @"";
         }
         
@@ -1308,7 +1310,9 @@ static NSString *ortcDEVICE_TOKEN;
                     
                     NSString* aString = [[NSString alloc] init];
                     aString = nil;
-                    if (channelSubscription.withNotifications) {
+                    if (channelSubscription.withOptions){
+                        aString = [NSString stringWithFormat:@"\"subscribeoptions;%@;%@;%@;%@;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, channelSubscription.subscriberId, channelSubscription.regId, PLATFORM, hashPerm, channelSubscription.filter?channelSubscription.filter:@""];
+                    }else if (channelSubscription.withNotifications) {
                         if (![self isEmpty:[OrtcClient getDEVICE_TOKEN]]) {
                             aString = [NSString stringWithFormat:@"\"subscribe;%@;%@;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, hashPerm, [OrtcClient getDEVICE_TOKEN], PLATFORM];
                         }
@@ -1318,10 +1322,7 @@ static NSString *ortcDEVICE_TOKEN;
                         }
                     }else if(channelSubscription.withFilter){
                         aString = [NSString stringWithFormat:@"\"subscribefilter;%@;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, hashPerm, channelSubscription.filter];
-                    } else if (channelSubscription.withOptions){
-                        aString = [NSString stringWithFormat:@"\"subscribeoptions;%@;%@;%@;%@;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, channelSubscription.subscriberId, channelSubscription.regId, PLATFORM, hashPerm, channelSubscription.filter?channelSubscription.filter:@""];
-                    }
-                    else {
+                    }else {
                         aString = [NSString stringWithFormat:@"\"subscribe;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, hashPerm];
                     }
                     //NSLog(@"SUB ON ORTC:\n%@",aString);
@@ -1338,7 +1339,7 @@ static NSString *ortcDEVICE_TOKEN;
                 [_subscribedChannels removeObjectForKey:channel];
             }
             // Clean messages buffer (can have lost message parts in memory)
-            [messagesBuffer removeAllObjects];
+            //[messagesBuffer removeAllObjects];
             [OrtcClient removeReceivedNotifications];
             [self delegateReconnectedCallback:self];
         }
@@ -1511,6 +1512,10 @@ static NSString *ortcDEVICE_TOKEN;
 }
 
 - (void)opReceive:(NSString*) message {
+    dispatch_semaphore_wait(_sema, DISPATCH_TIME_NOW);
+    
+    NSString* originalMessage = [NSString stringWithFormat:@"%@", message];
+    
     
     NSRegularExpression* recJSONRegex = [NSRegularExpression regularExpressionWithPattern:JSON_PATTERN options:0 error:NULL];
     NSTextCheckingResult* recJSONMatch = [recJSONRegex firstMatchInString:message options:0 range:NSMakeRange(0, [message length])];
@@ -1574,6 +1579,7 @@ static NSString *ortcDEVICE_TOKEN;
                 
                 if (strRangeMsgId.location != NSNotFound) {
                     messageId = [aMessage substringWithRange:strRangeMsgId];
+                    NSLog(@"messageId:%@", messageId);
                 }
                 
                 if (strRangeMsgCurPart.location != NSNotFound) {
@@ -1597,6 +1603,7 @@ static NSString *ortcDEVICE_TOKEN;
                     NSMutableDictionary *msgSentDict = [[NSMutableDictionary alloc] init];
                     [msgSentDict setObject:[NSNumber numberWithBool:NO] forKey:@"isMsgSent"];
                     [messagesBuffer setObject:msgSentDict forKey:messageId];
+                    NSLog(@"messageId:%@ on buffer", messageId);
                 }
                 
                 NSMutableDictionary* messageBufferId = [messagesBuffer objectForKey:messageId];
@@ -1641,9 +1648,14 @@ static NSString *ortcDEVICE_TOKEN;
                     //aMessage = [self escapeRecvChars:aMessage];
                     
                     aMessage = [self checkForEmoji:aMessage];
+                    BOOL callbackCalled;
+                    if ([OrtcClient deliveredNotification:originalMessage withAppKey:applicationKey]) {
+                        return;
+                    }
                     
                     if (channelSubscription.withFilter) {
                         channelSubscription.onMessageWithFilter(self, aChannel, [aFiltered boolValue], aMessage);
+                        callbackCalled = YES;
                     }else if (channelSubscription.withOptions){
                         NSMutableDictionary *dataResult = [[NSMutableDictionary alloc] init];
                         [dataResult setObject:aChannel forKey:@"channel"];
@@ -1655,8 +1667,13 @@ static NSString *ortcDEVICE_TOKEN;
                             [dataResult setObject:aSeqId forKey:@"seqId"];
                         }
                         channelSubscription.onMessageWithOptions(self, dataResult);
+                        callbackCalled = YES;
                     }else if(channelSubscription.onMessage){
                         channelSubscription.onMessage(self, aChannel, aMessage);
+                        callbackCalled = YES;
+                    }
+                    if (callbackCalled) {
+                       [OrtcClient storeNotification:originalMessage withAppKey:applicationKey];
                     }
                 }
             }
@@ -1668,6 +1685,8 @@ static NSString *ortcDEVICE_TOKEN;
             }
         }
     }
+    
+    dispatch_semaphore_signal(_sema);
 }
 
 
@@ -2060,6 +2079,7 @@ static NSString *ortcDEVICE_TOKEN;
     self = [super init];
     
     if (self) {
+        _sema = dispatch_semaphore_create(0);
         if (opCases == nil) {
             opCases = [[NSMutableDictionary alloc] initWithCapacity:4];
             
@@ -2119,7 +2139,24 @@ static NSString *ortcDEVICE_TOKEN;
         NSDictionary *notificaionInfo = [[NSDictionary alloc] initWithDictionary:[notification userInfo]];
         if ([[notificaionInfo objectForKey:@"A"] isEqualToString:applicationKey]) {
             
-            NSString *ortcMessage = [NSString stringWithFormat:@"a[\"{\\\"ch\\\":\\\"%@\\\",\\\"m\\\":\\\"%@\\\"}\"]", [notificaionInfo objectForKey:@"C"], [notificaionInfo objectForKey:@"M"]];
+            NSRegularExpression* valRegex = [NSRegularExpression regularExpressionWithPattern:SEQID_PATTERN options:0 error:NULL];
+            NSTextCheckingResult* valMatch = [valRegex firstMatchInString:[notificaionInfo objectForKey:@"M"] options:0 range:NSMakeRange(0, [[notificaionInfo objectForKey:@"M"] length])];
+            NSRange strRangeSeqId = [valMatch rangeAtIndex:1];
+            NSString* seqId;
+            NSString* message;
+            
+            if (valMatch && strRangeSeqId.location != NSNotFound) {
+                seqId = [[notificaionInfo objectForKey:@"M"] substringWithRange:strRangeSeqId];
+                NSArray* parts = [[notificaionInfo objectForKey:@"M"] componentsSeparatedByString:[NSString stringWithFormat:@"#%@:", seqId]];
+                message = [parts objectAtIndex:1];
+            }
+            NSString *ortcMessage;
+            if (seqId != nil && ![seqId isEqualToString:@""]) {
+                ortcMessage = [NSString stringWithFormat:@"a[\"{\\\"ch\\\":\\\"%@\\\",\\\"m\\\":\\\"%@\\\",\\\"s\\\":\\\"%@\\\"}\"]", [notificaionInfo objectForKey:@"C"], message, seqId];
+            }else{
+                ortcMessage = [NSString stringWithFormat:@"a[\"{\\\"ch\\\":\\\"%@\\\",\\\"m\\\":\\\"%@\\\"}\"]", [notificaionInfo objectForKey:@"C"], [notificaionInfo objectForKey:@"M"]];
+            }
+            
             [self parseReceivedMessage:ortcMessage];
         }
     }
@@ -2134,7 +2171,7 @@ static NSString *ortcDEVICE_TOKEN;
 - (void) parseReceivedNotifications {
     
     NSMutableDictionary *notificationsDict = [[NSMutableDictionary alloc] initWithDictionary:[[NSUserDefaults standardUserDefaults] objectForKey:NOTIFICATIONS_KEY]];
-    NSMutableArray *receivedMessages = [[NSMutableArray alloc] initWithArray:[notificationsDict objectForKey:applicationKey]];
+    NSMutableDictionary *receivedMessages = [[NSMutableDictionary alloc] initWithDictionary:[notificationsDict objectForKey:applicationKey]];
     //NSMutableArray *messages = [[NSMutableArray alloc] initWithArray:receivedMessages];
     
     for (NSString *message in receivedMessages) {
@@ -2146,6 +2183,43 @@ static NSString *ortcDEVICE_TOKEN;
     [notificationsDict setObject:receivedMessages forKey:applicationKey];
     [[NSUserDefaults standardUserDefaults] setObject:notificationsDict forKey:NOTIFICATIONS_KEY];
     [[NSUserDefaults standardUserDefaults] synchronize];
+    
+}
+
+
++ (void)storeNotification:(NSString*)ortcMessage withAppKey:(NSString*)key{
+    NSMutableDictionary *notificationsDict  = [[NSMutableDictionary alloc] initWithDictionary:[[NSUserDefaults standardUserDefaults] objectForKey:NOTIFICATIONS_KEY]];
+    NSMutableDictionary *notificationsArray = [[NSMutableDictionary alloc] init];
+    [notificationsArray setObject:@YES forKey:ortcMessage];
+    
+    [notificationsDict setObject:notificationsArray forKey:key];
+    [[NSUserDefaults standardUserDefaults] setObject:notificationsDict forKey:NOTIFICATIONS_KEY];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+}
+
+
++ (BOOL)deliveredNotification:(NSString*)ortcMessage withAppKey:(NSString*)key{
+    NSMutableDictionary *notificationsDict = [[NSMutableDictionary alloc] initWithDictionary:[[NSUserDefaults standardUserDefaults] objectForKey:NOTIFICATIONS_KEY]];
+    NSMutableDictionary *receivedMessages = [[NSMutableDictionary alloc] initWithDictionary:[notificationsDict objectForKey:key]];
+    if ([receivedMessages objectForKey:ortcMessage] && [receivedMessages objectForKey:ortcMessage] == YES) {
+        return YES;
+    }
+    return NO;
+}
+
+
+- (void)removeNotificationWithMessage:(NSString*)message{
+    NSMutableDictionary *notificationsDict = [[NSMutableDictionary alloc] initWithDictionary:[[NSUserDefaults standardUserDefaults] objectForKey:NOTIFICATIONS_KEY]];
+    NSMutableDictionary *receivedMessages = [[NSMutableDictionary alloc] initWithDictionary:[notificationsDict objectForKey:applicationKey]];
+    for (NSString *messageP in receivedMessages) {
+        if ([message isEqualToString:messageP]) {
+            [receivedMessages removeObjectForKey:messageP];
+        }
+    }
+
+    [notificationsDict setObject:receivedMessages forKey:applicationKey];
+    [[NSUserDefaults standardUserDefaults] setObject:notificationsDict forKey:NOTIFICATIONS_KEY];
+    [[NSUserDefaults standardUserDefaults] synchronize];
 }
 
 + (void) removeReceivedNotifications {
@@ -2153,7 +2227,7 @@ static NSString *ortcDEVICE_TOKEN;
     NSMutableDictionary *notificationsDict = [[NSMutableDictionary alloc] initWithDictionary:[[NSUserDefaults standardUserDefaults] objectForKey:NOTIFICATIONS_KEY]];
     [notificationsDict removeAllObjects];
     
-    [[NSUserDefaults standardUserDefaults] setObject:notificationsDict forKey:NOTIFICATIONS_KEY];
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:NOTIFICATIONS_KEY];
     [[NSUserDefaults standardUserDefaults] synchronize];
 }
 
