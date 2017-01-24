@@ -1044,9 +1044,18 @@ NSTimer* partSendInterval;
 }
 
 
+- (void) setPublishTimeout:(int)timeout{
+    _publishTimeout = timeout;
+}
+
+- (int) getPublishTimeout{
+    return _publishTimeout;
+}
+
 - (int) getHeartbeatTime{
     return heartbeatTime;
 }
+
 - (void) setHeartbeatTime:(int) newHeartbeatTime {
     if(newHeartbeatTime > heartbeatMaxTime || newHeartbeatTime < heartbeatMinTime){
         [self delegateExceptionCallback:self error:[self generateError:[NSString stringWithFormat:@"Heartbeat time is out of limits (min: %d, max: %d)", heartbeatMinTime, heartbeatMaxTime]]];
@@ -1054,9 +1063,11 @@ NSTimer* partSendInterval;
         heartbeatTime = newHeartbeatTime;
     }
 }
+
 - (int) getHeartbeatFails{
     return heartbeatFails;
 }
+
 - (void) setHeartbeatFails:(int) newHeartbeatFails {
     if(newHeartbeatFails > heartbeatMaxFails || newHeartbeatFails < heartbeatMinFails){
         [self delegateExceptionCallback:self error:[self generateError:[NSString stringWithFormat:@"Heartbeat fails is out of limits (min: %d, max: %d)", heartbeatMinFails, heartbeatMaxFails]]];
@@ -1064,12 +1075,15 @@ NSTimer* partSendInterval;
         heartbeatFails = newHeartbeatFails;
     }
 }
+
 - (BOOL) isHeartbeatActive{
     return heartbeatActive;
 }
+
 - (void) enableHeartbeat{
     heartbeatActive = true;
 }
+
 - (void) disableHeartbeat{
     heartbeatActive = false;
 }

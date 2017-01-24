@@ -276,8 +276,8 @@
  *
  * @param options The subscription options dictionary, EX: "options = {
  * channel,
- * subscribeOnReconnected, // optional, default = true
- * withNotifications, // optional, default = false, push notifications platform as in subscribeWithNotifications
+ * subscribeOnReconnected, // optional, default = true,
+ * withNotifications (Bool), // optional, default = false, use push notifications as in subscribeWithNotifications
  * filter, // optional, default = "", the subscription filter as in subscribeWithFilter
  * subscriberId // optional, default = "", the subscriberId as in subscribeWithBuffer
  * }".
@@ -383,6 +383,16 @@
  * @param callback Callback with error (NSError) and result (NSDictionary) parameters
  */
 - (void)presence:(NSString*) aUrl isCLuster:(BOOL) aIsCluster applicationKey:(NSString*) aApplicationKey authenticationToken:(NSString*) aAuthenticationToken channel:(NSString*) channel callback:(void (^)(NSError* error, NSDictionary* result)) aCallback;
+
+/**
+ * Set publish messages timeout.
+ */
+- (void) setPublishTimeout:(int)timeout;
+
+/**
+ * Return publish messages timeout.
+ */
+- (int) getPublishTimeout;
 
 /**
  * Get heartbeat interval.
