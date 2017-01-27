@@ -326,17 +326,7 @@ NSString* const PLATFORM = @"Apns";
                     }
                     
                     // check for acknowledge timeout
-                    NSTimer* ackTimeout = [NSTimer scheduledTimerWithTimeInterval:_publishTimeout repeats:NO block:^(NSTimer * _Nonnull timer) {
-                        if([_pendingPublishMessages objectForKey:messageId]) {
-                            err = [NSString stringWithFormat:@"Message publish timeout after %d seconds", _publishTimeout];
-                            if([[_pendingPublishMessages objectForKey:messageId] objectForKey:@"callback"]) {
-                                void (^callbackP)(NSError*, NSString*) = (void(^)(NSError*, NSString*)) [[_pendingPublishMessages objectForKey:messageId] objectForKey:@"callback"];
-                                callbackP([self generateError:err], nil);
-                                [_pendingPublishMessages removeObjectForKey:messageId];
-                            }
-                            [_pendingPublishMessages removeObjectForKey:messageId];
-                        }
-                    }];
+                    NSTimer* ackTimeout = [NSTimer scheduledTimerWithTimeInterval:heartbeatTime target:self selector:@selector(ACKTimeout:) userInfo:messageId repeats:YES];
                     
                     NSDictionary* pendingMsg = @{
                         @"totalNumOfParts": @(messageParts.count),
@@ -345,7 +335,6 @@ NSString* const PLATFORM = @"Apns";
                     };
                     
                     [_pendingPublishMessages setObject:pendingMsg forKey:messageId];
-                    
                 }
         
                 if (messageParts.count < 20) {
@@ -363,26 +352,30 @@ NSString* const PLATFORM = @"Apns";
                 }else{
                     int counter = 1;
                     __block int partsSent = 0;
-                    partSendInterval = [NSTimer scheduledTimerWithTimeInterval:100 repeats:YES block:^(NSTimer * _Nonnull timer) {
-                    
-                        if(isConnected && _webSocket) {
-                            int currentPart = partsSent + 1;
-                            int totalParts = messageParts.count;
-                            
-                            NSString* encodedData = [[NSString alloc] initWithData:[NSData dataWithBytes:[[messageParts objectAtIndex:currentPart] UTF8String] length:[[messageParts objectAtIndex:currentPart] lengthOfBytesUsingEncoding:NSUTF8StringEncoding]] encoding:NSUTF8StringEncoding];
-                            NSString* aString = [NSString stringWithFormat:@"\"publish;%@;%@;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, ttl, hashPerm, [[[[[[messageId stringByAppendingString:@"_"] stringByAppendingString:[NSString stringWithFormat:@"%d", counter]] stringByAppendingString:@"-"] stringByAppendingString:[NSString stringWithFormat:@"%d", ((int)messageParts.count)]] stringByAppendingString:@"_"] stringByAppendingString:encodedData]];
-                            
-                            [_webSocket send:aString];
-                            partsSent++;
-                            
-                            if(partsSent == messageParts.count) {
-                                [partSendInterval invalidate];
+                    dispatch_async(dispatch_get_global_queue( DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^(void){
+                        
+                        while (true) {
+                            if(isConnected && _webSocket) {
+                                int currentPart = partsSent + 1;
+                                int totalParts = messageParts.count;
+                                
+                                NSString* encodedData = [[NSString alloc] initWithData:[NSData dataWithBytes:[[messageParts objectAtIndex:currentPart] UTF8String] length:[[messageParts objectAtIndex:currentPart] lengthOfBytesUsingEncoding:NSUTF8StringEncoding]] encoding:NSUTF8StringEncoding];
+                                NSString* aString = [NSString stringWithFormat:@"\"publish;%@;%@;%@;%@;%@;%@\"", applicationKey, authenticationToken, channel, ttl, hashPerm, [[[[[[messageId stringByAppendingString:@"_"] stringByAppendingString:[NSString stringWithFormat:@"%d", currentPart]] stringByAppendingString:@"-"] stringByAppendingString:[NSString stringWithFormat:@"%d", ((int)messageParts.count)]] stringByAppendingString:@"_"] stringByAppendingString:encodedData]];
+                                
+                                [_webSocket send:aString];
+                                partsSent++;
+                                
+                                if(partsSent == messageParts.count) {
+                                    break;
+                                }
+                            } else {
+                                // socket was disconnected, stop sending
+                                break;
                             }
-                        } else {
-                            // socket was disconnected, stop sending
-                            [partSendInterval invalidate];
+                            sleep(100);
                         }
-                    }];
+                    
+                    });
                 }
             }
         }
@@ -390,6 +383,22 @@ NSString* const PLATFORM = @"Apns";
 }
                                                  
 NSTimer* partSendInterval;
+
+
+- (void)ACKTimeout:(NSTimer*)theTimer{
+    NSString *messageId = (NSString*)theTimer.userInfo;
+    if([_pendingPublishMessages objectForKey:messageId]) {
+        NSString* err = [NSString stringWithFormat:@"Message publish timeout after %d seconds", _publishTimeout];
+        if([[_pendingPublishMessages objectForKey:messageId] objectForKey:@"callback"]) {
+            void (^callbackP)(NSError*, NSString*) = (void(^)(NSError*, NSString*)) [[_pendingPublishMessages objectForKey:messageId] objectForKey:@"callback"];
+            callbackP([self generateError:err], nil);
+            [_pendingPublishMessages removeObjectForKey:messageId];
+        }
+        [_pendingPublishMessages removeObjectForKey:messageId];
+    }
+
+}
+
 
 - (void)send:(NSString*) channel message:(NSString*) aMessage
 {
